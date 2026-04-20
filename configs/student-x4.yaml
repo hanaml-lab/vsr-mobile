@@ -1,0 +1,21 @@
+model:
+  channels: 80
+  blocks: 14
+  scale: 4
+  reset_threshold: 0.35     # mean flow confidence below which the hidden state is dropped
+data:
+  source: reds              # or: synthetic, for a smoke run without data
+  root: data/REDS/train_sharp
+  teacher_root: data/REDS/basicvsrpp_x4   # precomputed BasicVSR++ outputs, same layout
+  frames: 7
+  crop: 256
+train:
+  batch_size: 8
+  lr: 2.0e-4
+  steps: 300000
+  workers: 8
+  log_every: 100
+loss:
+  teacher: 1.0
+  gt: 0.25
+  temporal: 0.5
