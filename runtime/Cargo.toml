@@ -1,0 +1,18 @@
+[package]
+name = "vsr-runtime"
+version = "0.5.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Playback pipeline for vsr-mobile: decode, two-frame queue, inference, encode"
+repository = "https://github.com/hanaml-lab/vsr-mobile"
+
+[features]
+default = []
+onnx = ["dep:ort"]
+
+[dependencies]
+ort = { version = "=2.0.0-rc.10", optional = true }
+
+[[bin]]
+name = "vsr-runtime"
+path = "src/main.rs"
