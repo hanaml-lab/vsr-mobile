@@ -18,7 +18,7 @@ import torch
 import torch.nn.functional as F
 import yaml
 
-from train.data import REDSClips, SyntheticClips
+from train.data import build_dataset
 from train.flow import warp
 from train.student import Student
 
@@ -59,13 +59,7 @@ def train(cfg: dict, steps: int | None = None, device: str = "cpu") -> Student:
     m = cfg["model"]
     model = Student(ch=m["channels"], blocks=m["blocks"], scale=m["scale"],
                     reset_threshold=m["reset_threshold"]).to(device)
-    d = cfg["data"]
-    if d["source"] == "synthetic":
-        data = SyntheticClips(n=d.get("clips", 64), frames=d["frames"], size=d["crop"] // m["scale"],
-                              scale=m["scale"])
-    else:
-        data = REDSClips(d["root"], frames=d["frames"], crop=d["crop"], scale=m["scale"],
-                         teacher_root=d["teacher_root"])
+    data = build_dataset(cfg["data"], scale=m["scale"])
     loader = torch.utils.data.DataLoader(data, batch_size=cfg["train"]["batch_size"], shuffle=True,
                                          num_workers=cfg["train"].get("workers", 0))
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["train"]["lr"], betas=(0.9, 0.99))

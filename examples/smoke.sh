@@ -13,7 +13,7 @@ import sys, yaml, torch
 from train.distill import train
 from export.onnx import export
 cfg = yaml.safe_load(open("configs/student-x4.yaml"))
-cfg["data"] = {"source": "synthetic", "clips": 16, "frames": 3, "crop": 128}
+cfg["data"] = {"source": "synthetic", "clips": 16, "frames": 3, "crop": 32}
 cfg["train"].update(steps=20, batch_size=4, workers=0, log_every=10)
 model = train(cfg)
 export(model, f"{sys.argv[1]}/vsr.onnx", height=270, width=480)

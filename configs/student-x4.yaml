@@ -4,11 +4,15 @@ model:
   scale: 4
   reset_threshold: 0.35     # mean flow confidence below which the hidden state is dropped
 data:
-  source: reds              # or: synthetic, for a smoke run without data
-  root: data/REDS/train_sharp
-  teacher_root: data/REDS/basicvsrpp_x4   # precomputed BasicVSR++ outputs, same layout
+  source: [reds, vimeo90k]  # or: synthetic, for a smoke run without data
+  reds:
+    root: data/REDS/train_sharp
+    teacher_root: data/REDS/basicvsrpp_x4             # precomputed BasicVSR++ outputs, same layout
+  vimeo90k:
+    root: data/vimeo_septuplet                        # sequences/ and sep_trainlist.txt
+    teacher_root: data/vimeo_septuplet/basicvsrpp_x4  # <group>/<clip>/im<k>.png
   frames: 7
-  crop: 256
+  crop: 256                 # high-res pixels; low-res crops are crop / scale
 train:
   batch_size: 8
   lr: 2.0e-4

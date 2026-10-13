@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import torch
 
-from train.data import SyntheticClips, degrade
+from train.data import SyntheticClips, Vimeo90KSeptuplets, build_dataset, codec_available, degrade
 from train.distill import clip_loss, train
 from train.flow import warp
 from train.student import Student, count_parameters
@@ -50,7 +50,7 @@ def test_degrade_shapes():
 def test_a_few_steps_reduce_the_loss():
     torch.manual_seed(0)
     cfg = {"model": {"channels": 16, "blocks": 2, "scale": 4, "reset_threshold": 0.35},
-           "data": {"source": "synthetic", "clips": 8, "frames": 3, "crop": 64},
+           "data": {"source": "synthetic", "clips": 8, "frames": 3, "crop": 16},
            "train": {"batch_size": 4, "lr": 2e-3, "steps": 30, "log_every": 1000},
            "loss": {"teacher": 1.0, "gt": 0.25, "temporal": 0.5}}
     batch = next(iter(torch.utils.data.DataLoader(SyntheticClips(n=4, frames=3, size=16), batch_size=4)))
@@ -74,3 +74,74 @@ def test_onnx_export_runs_in_onnxruntime(tmp_path):
         ref, ref_state = model(torch.from_numpy(frame))
     assert up.shape == (1, 3, 72, 128)
     assert np.allclose(up, ref.numpy(), atol=1e-4) and np.allclose(state, ref_state.numpy(), atol=1e-4)
+
+
+def _clip(size=128, frames=4):
+    return SyntheticClips(n=1, frames=frames, size=size)[0]["hr"]
+
+
+@pytest.mark.parametrize("codec", ["h264", "av1"])
+def test_video_codec_degradation_loses_more_detail_at_a_higher_crf(codec):
+    if not codec_available(codec):
+        pytest.skip(f"ffmpeg has no {codec} encoder")
+    hr = _clip()
+    clean = degrade(hr, 4)
+    low, high = (degrade(hr, 4, codec=codec, crf=crf) for crf in (18, 45))
+    assert low.shape == high.shape == clean.shape == (4, 3, 32, 32)
+    err = [float(((x - clean) ** 2).mean()) for x in (low, high)]
+    assert 0 < err[0] < err[1]
+
+
+def test_downscaling_kernels_differ_but_keep_flat_images_flat():
+    hr = _clip()
+    outs = {k: degrade(hr, 4, kernel=k) for k in ("bicubic", "bilinear", "area")}
+    assert not torch.allclose(outs["bicubic"], outs["area"])
+    flat = torch.full((2, 3, 64, 64), 0.3)
+    for k in outs:
+        assert torch.allclose(degrade(flat, 4, kernel=k), torch.full((2, 3, 16, 16), 0.3), atol=1e-6)
+    with pytest.raises(ValueError):
+        degrade(hr, 4, kernel="lanczos9")
+
+
+def _write_frames(folder, names, size=(96, 80), seed=0):
+    from PIL import Image
+
+    folder.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(seed)
+    for name in names:
+        Image.fromarray(rng.integers(0, 256, (size[1], size[0], 3), dtype=np.uint8)).save(folder / name)
+
+
+def _vimeo(tmp_path):
+    root, teacher = tmp_path / "vimeo_septuplet", tmp_path / "vimeo_teacher"
+    names = [f"im{k}.png" for k in range(1, 8)]
+    for i, clip in enumerate(("00001/0001", "00001/0002", "00002/0001")):
+        _write_frames(root / "sequences" / clip, names, seed=i)
+        _write_frames(teacher / clip, names, seed=i)  # a teacher that returns the frames unchanged
+    (root / "sep_trainlist.txt").write_text("00001/0001\n00002/0001\n")
+    return root, teacher
+
+
+def test_vimeo90k_septuplets_follow_the_train_list_and_align_the_teacher(tmp_path):
+    root, teacher = _vimeo(tmp_path)
+    data = Vimeo90KSeptuplets(root, frames=5, crop=64, teacher_root=teacher)
+    assert len(data) == 2
+    item = data[1]
+    assert item["hr"].shape == item["teacher"].shape == (5, 3, 64, 64)
+    assert item["lr"].shape == (5, 3, 16, 16)
+    assert torch.equal(item["teacher"], item["hr"])
+
+
+def test_reds_and_vimeo90k_combine_into_one_training_set(tmp_path):
+    root, teacher = _vimeo(tmp_path)
+    reds = tmp_path / "REDS"
+    _write_frames(reds / "000", [f"{k:08d}.png" for k in range(8)])
+    _write_frames(tmp_path / "reds_teacher" / "000", [f"{k:08d}.png" for k in range(8)])
+    data = build_dataset({"source": ["reds", "vimeo90k"], "frames": 7, "crop": 64,
+                          "reds": {"root": str(reds), "teacher_root": str(tmp_path / "reds_teacher")},
+                          "vimeo90k": {"root": str(root), "teacher_root": str(teacher)}}, scale=4)
+    assert len(data) == 10 + 2
+    shapes = {tuple(data[i]["lr"].shape) for i in (0, len(data) - 1)}
+    assert shapes == {(7, 3, 16, 16)}
+    synthetic = build_dataset({"source": "synthetic", "clips": 3, "frames": 3, "crop": 64}, scale=4)
+    assert len(synthetic) == 3 and synthetic[0]["lr"].shape == (3, 3, 16, 16)
