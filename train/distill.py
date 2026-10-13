@@ -1,12 +1,17 @@
 """Distillation from BasicVSR++ with a temporal-consistency loss.
 
     python -m train.distill --config configs/student-x4.yaml
+    python -m train.distill --config configs/student-x4-drift.yaml   # with DRIFT's terms
 
 Teacher outputs are precomputed once (BasicVSR++ is bidirectional and slow) and read from
 ``teacher_root``. The loss is Charbonnier distance to the teacher, a smaller weight of
 Charbonnier distance to ground truth, and a temporal term: consecutive outputs, the earlier
 one warped onto the later by the flow the student estimated (upsampled), should agree where
 the flow is confident. That term is what keeps flicker down.
+
+The DRIFT config replaces the temporal term with consistency matching (agree with the teacher's
+temporal residual rather than suppress all change), adds a gradient-domain texture term against
+the teacher, and penalises a state-Jacobian norm above gamma (see train/drift.py).
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ import torch.nn.functional as F
 import yaml
 
 from train.data import build_dataset
+from train.drift import consistency_matching, contraction_penalty, gradient_loss, jacobian_spectral_norm
 from train.flow import warp
 from train.student import Student
 
@@ -28,31 +34,51 @@ def charbonnier(a: torch.Tensor, b: torch.Tensor, eps: float = 1e-3) -> torch.Te
 
 
 def clip_loss(model: Student, lr: torch.Tensor, hr: torch.Tensor, teacher: torch.Tensor,
-              w_teacher: float = 1.0, w_gt: float = 0.25, w_temporal: float = 0.5) -> tuple[torch.Tensor, dict]:
-    """lr: (N, T, 3, h, w); hr and teacher: (N, T, 3, H, W)."""
+              w_teacher: float = 1.0, w_gt: float = 0.25, w_temporal: float = 0.5, w_consistency: float = 0.0,
+              w_texture: float = 0.0, w_contraction: float = 0.0, gamma: float = 0.9) -> tuple[torch.Tensor, dict]:
+    """lr: (N, T, 3, h, w); hr and teacher: (N, T, 3, H, W). Terms with a zero weight are not computed."""
     state = None
-    outs, confs, flows = [], [], []
+    outs, confs, flows, states = [], [], [], []
     for t in range(lr.shape[1]):
         frame = lr[:, t]
         prev = state[:, :3] if state is not None else frame
+        states.append(state)
         out, state, conf = model(frame, state, return_confidence=True)
         flow, _ = model.flow(frame, prev)
         outs.append(out)
         confs.append(conf)
         flows.append(flow)
     out = torch.stack(outs, dim=1)
-    distill = charbonnier(out, teacher)
-    gt = charbonnier(out, hr)
-    temporal = out.new_zeros(())
     s = model.scale
-    for t in range(1, len(outs)):
-        flow_hr = F.interpolate(flows[t], scale_factor=s, mode="bilinear", align_corners=False) * s
-        conf_hr = F.interpolate(confs[t], scale_factor=s, mode="bilinear", align_corners=False).detach()
-        warped_prev = warp(outs[t - 1], flow_hr)
-        temporal = temporal + (conf_hr * (outs[t] - warped_prev).abs()).mean()
-    temporal = temporal / max(len(outs) - 1, 1)
-    loss = w_teacher * distill + w_gt * gt + w_temporal * temporal
-    return loss, {"distill": float(distill), "gt": float(gt), "temporal": float(temporal)}
+    flows_hr = [F.interpolate(f, scale_factor=s, mode="bilinear", align_corners=False) * s for f in flows]
+    loss = w_teacher * charbonnier(out, teacher) + w_gt * charbonnier(out, hr)
+    parts = {"distill": float(charbonnier(out, teacher)), "gt": float(charbonnier(out, hr))}
+    if w_temporal:
+        temporal = out.new_zeros(())
+        for t in range(1, len(outs)):
+            conf_hr = F.interpolate(confs[t], scale_factor=s, mode="bilinear", align_corners=False).detach()
+            temporal = temporal + (conf_hr * (outs[t] - warp(outs[t - 1], flows_hr[t])).abs()).mean()
+        temporal = temporal / max(len(outs) - 1, 1)
+        loss, parts["temporal"] = loss + w_temporal * temporal, float(temporal)
+    if w_consistency:
+        consistency = consistency_matching(out, teacher, torch.stack(flows_hr, dim=1).detach())
+        loss, parts["consistency"] = loss + w_consistency * consistency, float(consistency)
+    if w_texture:
+        texture = gradient_loss(out.flatten(0, 1), teacher.flatten(0, 1))
+        loss, parts["texture"] = loss + w_texture * texture, float(texture)
+    if w_contraction and len(outs) > 1:
+        last = lr[:, -1]
+        sigma, _ = jacobian_spectral_norm(lambda h: model(last, h)[1], states[-1], iters=2)
+        contraction = contraction_penalty(sigma, gamma)
+        loss = loss + w_contraction * contraction
+        parts["contraction"], parts["state_norm"] = float(contraction), float(sigma.mean())
+    return loss, parts
+
+
+def loss_weights(loss_cfg: dict) -> dict:
+    """The config's ``loss`` section as clip_loss keyword arguments; absent terms are off."""
+    names = ("teacher", "gt", "temporal", "consistency", "texture", "contraction")
+    return {f"w_{k}": loss_cfg.get(k, 0.0) for k in names} | {"gamma": loss_cfg.get("gamma", 0.9)}
 
 
 def train(cfg: dict, steps: int | None = None, device: str = "cpu") -> Student:
@@ -70,7 +96,7 @@ def train(cfg: dict, steps: int | None = None, device: str = "cpu") -> Student:
     while step < total:
         for batch in loader:
             loss, parts = clip_loss(model, batch["lr"].to(device), batch["hr"].to(device),
-                                    batch["teacher"].to(device), w["teacher"], w["gt"], w["temporal"])
+                                    batch["teacher"].to(device), **loss_weights(w))
             opt.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
