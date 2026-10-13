@@ -4,6 +4,7 @@
 //! dependency-free reference used in tests and as a fallback; with the `onnx` feature,
 //! `OrtEngine` runs the exported model through ONNX Runtime.
 
+pub mod budget;
 pub mod gate;
 pub mod pipeline;
 
@@ -49,6 +50,13 @@ pub trait Engine {
     /// Upscale `frame` x4, reading and updating `state` (STATE_CHANNELS x h x w). An all-zero
     /// state means "no previous frame".
     fn infer(&mut self, frame: &Planar, state: &mut [f32]) -> Result<Planar, String>;
+}
+
+/// A boxed engine is an engine, so the command line can choose one at run time.
+impl<E: Engine + ?Sized> Engine for Box<E> {
+    fn infer(&mut self, frame: &Planar, state: &mut [f32]) -> Result<Planar, String> {
+        (**self).infer(frame, state)
+    }
 }
 
 /// Bicubic x4 (Catmull-Rom). Keeps the previous frame in the state like the network does, so the
