@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "vsr-mobile: on-device video super-resolution from 270p to 1080p"
+abstract: >-
+  A causal 1.9M-parameter recurrent student for x4 video super-resolution with a confidence-gated hidden state,
+  distilled from BasicVSR++, with quantisation-aware fine-tuning, ONNX, TensorRT INT8 and Core ML exports, and a
+  Rust playback pipeline with a frame-time budget.
+version: 0.6.0
+date-released: 2026-10-14
+license: Apache-2.0
+repository-code: "https://github.com/hanaml-lab/vsr-mobile"
+url: "https://hanaml.com/research/on-device-video"
+authors:
+  - name: "hanaML"
+keywords:
+  - video super-resolution
+  - on-device inference
+  - knowledge distillation
+  - quantisation-aware training
+  - TensorRT
+  - Core ML
+references:
+  - type: report
+    title: "DRIFT: Drift-Bounded Distillation of One-Step Video Diffusion into Integer Recurrent Students"
+    authors:
+      - family-names: Agarwal
+        given-names: Manav
+    institution:
+      name: hanaML
+    year: 2025
+    url: "https://hanaml.com/research/papers/ondevice-video-sr"
+    repository-code: "https://github.com/hanaml-lab/ondevice-video-sr"
