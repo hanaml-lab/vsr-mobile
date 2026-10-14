@@ -10,7 +10,7 @@ into the new one. The repository holds distillation from precomputed teacher out
 quantisation-aware fine-tuning, ONNX, TensorRT INT8 and Core ML exports, and a Rust playback pipeline with a
 frame-time budget. It is the system repo behind the [`vsr-lite`](https://hanaml.com/models/vsr-lite) model, and it
 carries the training terms of the [DRIFT](https://hanaml.com/research/papers/ondevice-video-sr) paper into
-production. DRIFT's own student, distilled from a one-step video diffusion teacher, stays in the paper repo.
+production. DRIFT's own student, distilled from a video diffusion teacher, stays in the paper repo.
 
 | Component | Language | What it does |
 | --- | --- | --- |
@@ -129,24 +129,25 @@ values, DRIFT's bound against worked values, LSQ rounding and clipping, and that
 ### Reported in the paper
 
 The [DRIFT](https://hanaml.com/research/papers/ondevice-video-sr) paper reports these numbers for its own student: a
-1.9M-parameter recurrent network distilled from DOVE, a one-step video diffusion model, and run in W8A8 on a
+1.9M-parameter recurrent network distilled from Upscale-A-Video, a video diffusion model, and run in W8A8 on a
 Snapdragon 8 Gen 3 NPU. That student, its gated update and its long-rollout state bank are in the paper repo. This
-repo borrows DRIFT's loss terms and LSQ but keeps its own student and teacher, and no paper measures `vsr-lite`.
+repo borrows DRIFT's loss terms and LSQ but keeps its own student and teacher, and no paper measures `vsr-lite`. These
+numbers come from the report's seeded simulation and are illustrative.
 
 | Metric | Baseline | DRIFT | Setting |
 | --- | --- | --- | --- |
 | Latency per frame, 270p to 1080p | 118.0 ms | 21.4 ms | Snapdragon 8 Gen 3 NPU via QNN, median of 1,000 frames; RealBasicVSR, the only other model that runs on the NPU |
-| VideoLQ DOVER (higher is better) | 0.672 | 0.729 | RealBasicVSR vs. DRIFT W8A8; the 5.6B DOVE teacher scores 0.748 |
+| VideoLQ DOVER (higher is better) | 0.672 | 0.695 | RealBasicVSR vs. DRIFT W8A8; the 1.1B Upscale-A-Video teacher scores 0.714 |
 | DOVER drop after 1,000 frames (lower is better) | 0.137 | 0.005 | LongLQ; min–max post-training quantisation vs. DRIFT, both W8A8; FP16 reference 0.006 |
-| Warping error, REDS30 (×10⁻³, lower is better) | 5.21 | 2.83 | RealBasicVSR vs. DRIFT W8A8; the teacher scores 2.95 |
-| 2AFC preference for DRIFT over RealBasicVSR | 50% | 74.6% | 24 raters × 40 clips on a phone display; parity as the baseline; 95% CI 69.7–79.1% |
+| Warping error, REDS30 (×10⁻³, lower is better) | 5.21 | 2.83 | RealBasicVSR vs. DRIFT W8A8; the teacher scores 4.64 |
+| 2AFC preference for DRIFT over RealBasicVSR | 50% | 69.0% | 24 raters × 40 clips on a phone display; parity as the baseline; 95% CI 63.9–73.9% |
 | PSNR, REDS4 bicubic ×4, trained with ℓ1 alone | 31.42 dB | 30.84 dB | Bidirectional BasicVSR (6.3M parameters) vs. the same student architecture in FP16; 30.71 dB in W8A8 |
 
 ## Papers
 
 | Date | Paper | What this repo implements | PDF | Paper repo |
 | --- | --- | --- | --- | --- |
-| 2025-11-12 | [DRIFT: Drift-Bounded Distillation of One-Step Video Diffusion into Integer Recurrent Students](https://hanaml.com/research/papers/ondevice-video-sr) | The contraction penalty with its power-iteration norm, consistency matching, the gradient-domain texture term, LSQ quantisation-aware training and the drift bound, applied to the production student (`configs/student-x4-drift.yaml`). The gated contractive update, the long-rollout state bank and the one-step diffusion teacher stay in the paper repo. | [PDF](https://hanaml.com/papers/ondevice-video-sr.pdf) | [ondevice-video-sr](https://github.com/hanaml-lab/ondevice-video-sr) |
+| 2024-12-11 | [DRIFT: Drift-Bounded Distillation of Video Diffusion into Integer Recurrent Students](https://hanaml.com/research/papers/ondevice-video-sr) | The contraction penalty with its power-iteration norm, consistency matching, the gradient-domain texture term, LSQ quantisation-aware training and the drift bound, applied to the production student (`configs/student-x4-drift.yaml`). The gated contractive update, the long-rollout state bank and the diffusion teacher stay in the paper repo. | [PDF](https://hanaml.com/papers/ondevice-video-sr.pdf) | [ondevice-video-sr](https://github.com/hanaml-lab/ondevice-video-sr) |
 
 ## Models
 
@@ -189,12 +190,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 If you use the DRIFT training terms, please also cite the paper:
 
 ```bibtex
-@techreport{agarwal2025drift,
+@techreport{agarwal2024drift,
   author      = {Agarwal, Manav},
-  title       = {{DRIFT}: Drift-Bounded Distillation of One-Step Video Diffusion into Integer Recurrent Students},
+  title       = {{DRIFT}: Drift-Bounded Distillation of Video Diffusion into Integer Recurrent Students},
   institution = {hanaML},
   type        = {Technical report},
-  year        = {2025},
+  year        = {2024},
   url         = {https://hanaml.com/research/papers/ondevice-video-sr}
 }
 ```
