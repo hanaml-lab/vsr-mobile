@@ -52,27 +52,28 @@ def clip_loss(model: Student, lr: torch.Tensor, hr: torch.Tensor, teacher: torch
     out = torch.stack(outs, dim=1)
     s = model.scale
     flows_hr = [F.interpolate(f, scale_factor=s, mode="bilinear", align_corners=False) * s for f in flows]
-    loss = w_teacher * charbonnier(out, teacher) + w_gt * charbonnier(out, hr)
-    parts = {"distill": float(charbonnier(out, teacher)), "gt": float(charbonnier(out, hr))}
+    distill, gt = charbonnier(out, teacher), charbonnier(out, hr)
+    loss = w_teacher * distill + w_gt * gt
+    parts = {"distill": distill.item(), "gt": gt.item()}
     if w_temporal:
         temporal = out.new_zeros(())
         for t in range(1, len(outs)):
             conf_hr = F.interpolate(confs[t], scale_factor=s, mode="bilinear", align_corners=False).detach()
             temporal = temporal + (conf_hr * (outs[t] - warp(outs[t - 1], flows_hr[t])).abs()).mean()
         temporal = temporal / max(len(outs) - 1, 1)
-        loss, parts["temporal"] = loss + w_temporal * temporal, float(temporal)
+        loss, parts["temporal"] = loss + w_temporal * temporal, temporal.item()
     if w_consistency:
         consistency = consistency_matching(out, teacher, torch.stack(flows_hr, dim=1).detach())
-        loss, parts["consistency"] = loss + w_consistency * consistency, float(consistency)
+        loss, parts["consistency"] = loss + w_consistency * consistency, consistency.item()
     if w_texture:
         texture = gradient_loss(out.flatten(0, 1), teacher.flatten(0, 1))
-        loss, parts["texture"] = loss + w_texture * texture, float(texture)
+        loss, parts["texture"] = loss + w_texture * texture, texture.item()
     if w_contraction and len(outs) > 1:
         last = lr[:, -1]
         sigma, _ = jacobian_spectral_norm(lambda h: model(last, h)[1], states[-1], iters=2)
         contraction = contraction_penalty(sigma, gamma)
         loss = loss + w_contraction * contraction
-        parts["contraction"], parts["state_norm"] = float(contraction), float(sigma.mean())
+        parts["contraction"], parts["state_norm"] = contraction.item(), sigma.mean().item()
     return loss, parts
 
 
@@ -98,7 +99,7 @@ def _fit(model: Student, loader, lr: float, total: int, weights: dict, log_every
             sched.step()
             step += 1
             if step % log_every == 0:
-                print(f"{tag} {step} loss {float(loss):.4f} {parts}", flush=True)
+                print(f"{tag} {step} loss {loss.item():.4f} {parts}", flush=True)
             if step >= total:
                 break
 

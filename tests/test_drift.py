@@ -75,3 +75,14 @@ def test_the_drift_config_trains():
     before, _ = clip_loss(Student(ch=16, blocks=2), batch["lr"], batch["hr"], batch["teacher"], **kwargs)
     after, _ = clip_loss(train(cfg), batch["lr"], batch["hr"], batch["teacher"], **kwargs)
     assert float(after) < float(before)
+
+
+def test_clip_loss_reports_its_parts_without_autograd_warnings():
+    import warnings
+
+    batch = next(iter(torch.utils.data.DataLoader(SyntheticClips(n=2, frames=3, size=32), batch_size=2)))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        _, parts = clip_loss(Student(ch=8, blocks=1), batch["lr"], batch["hr"], batch["teacher"], w_consistency=0.5,
+                             w_texture=0.5, w_contraction=1.0)
+    assert all(isinstance(v, float) for v in parts.values())
