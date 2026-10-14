@@ -68,6 +68,7 @@ def test_the_drift_config_trains():
     cfg["model"].update(channels=16, blocks=2)
     cfg["data"] = {"source": "synthetic", "clips": 8, "frames": 3, "crop": 32}
     cfg["train"].update(steps=20, batch_size=4, workers=0, log_every=1000, lr=2e-3)
+    cfg["qat"].update(steps=2)
     batch = next(iter(torch.utils.data.DataLoader(SyntheticClips(n=4, frames=3, size=32), batch_size=4)))
     kwargs = loss_weights(cfg["loss"])
     assert kwargs["w_contraction"] > 0 and kwargs["w_consistency"] > 0 and kwargs["w_temporal"] == 0

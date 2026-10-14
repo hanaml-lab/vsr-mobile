@@ -26,6 +26,7 @@ import yaml
 from train.data import build_dataset
 from train.drift import consistency_matching, contraction_penalty, gradient_loss, jacobian_spectral_norm
 from train.flow import warp
+from train.qat import freeze, prepare_qat
 from train.student import Student
 
 
@@ -81,32 +82,42 @@ def loss_weights(loss_cfg: dict) -> dict:
     return {f"w_{k}": loss_cfg.get(k, 0.0) for k in names} | {"gamma": loss_cfg.get("gamma", 0.9)}
 
 
-def train(cfg: dict, steps: int | None = None, device: str = "cpu") -> Student:
-    m = cfg["model"]
-    model = Student(ch=m["channels"], blocks=m["blocks"], scale=m["scale"],
-                    reset_threshold=m["reset_threshold"]).to(device)
-    data = build_dataset(cfg["data"], scale=m["scale"])
-    loader = torch.utils.data.DataLoader(data, batch_size=cfg["train"]["batch_size"], shuffle=True,
-                                         num_workers=cfg["train"].get("workers", 0))
-    opt = torch.optim.AdamW(model.parameters(), lr=cfg["train"]["lr"], betas=(0.9, 0.99))
-    total = steps or cfg["train"]["steps"]
+def _fit(model: Student, loader, lr: float, total: int, weights: dict, log_every: int, device: str,
+         tag: str = "step") -> None:
+    opt = torch.optim.AdamW(model.parameters(), lr=lr, betas=(0.9, 0.99))
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=total)
-    w = cfg["loss"]
     step = 0
     while step < total:
         for batch in loader:
             loss, parts = clip_loss(model, batch["lr"].to(device), batch["hr"].to(device),
-                                    batch["teacher"].to(device), **loss_weights(w))
+                                    batch["teacher"].to(device), **weights)
             opt.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             opt.step()
             sched.step()
             step += 1
-            if step % cfg["train"].get("log_every", 100) == 0:
-                print(f"step {step} loss {float(loss):.4f} {parts}", flush=True)
+            if step % log_every == 0:
+                print(f"{tag} {step} loss {float(loss):.4f} {parts}", flush=True)
             if step >= total:
                 break
+
+
+def train(cfg: dict, steps: int | None = None, device: str = "cpu") -> Student:
+    """Distil for ``train.steps``; then, if the config has a ``qat`` section, fine-tune with fake
+    quantisation for ``qat.steps`` (bits, lr) and return the student with its weights on the grid."""
+    m = cfg["model"]
+    model = Student(ch=m["channels"], blocks=m["blocks"], scale=m["scale"],
+                    reset_threshold=m["reset_threshold"]).to(device)
+    data = build_dataset(cfg["data"], scale=m["scale"])
+    loader = torch.utils.data.DataLoader(data, batch_size=cfg["train"]["batch_size"], shuffle=True,
+                                         num_workers=cfg["train"].get("workers", 0))
+    weights, log_every = loss_weights(cfg["loss"]), cfg["train"].get("log_every", 100)
+    _fit(model, loader, cfg["train"]["lr"], steps or cfg["train"]["steps"], weights, log_every, device)
+    if q := cfg.get("qat"):
+        prepare_qat(model, bits=q.get("bits", 8))
+        _fit(model, loader, q.get("lr", cfg["train"]["lr"] / 10), q["steps"], weights, log_every, device, "qat")
+        freeze(model)
     return model
 
 

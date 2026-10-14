@@ -1,7 +1,8 @@
 # The production student trained with DRIFT's terms (hanaml.com/research/papers/ondevice-video-sr):
 # consistency matching instead of residual suppression, a gradient-domain texture term, and a
 # contraction penalty that keeps the state-Jacobian norm below gamma, so INT8 rounding in the hidden
-# state cannot accumulate (Proposition 1). Architecture and data as in student-x4.yaml.
+# state cannot accumulate (Proposition 1), then 8-bit quantisation-aware fine-tuning (train/qat.py).
+# Architecture and data as in student-x4.yaml.
 model:
   channels: 80
   blocks: 14
@@ -20,7 +21,7 @@ data:
 train:
   batch_size: 8
   lr: 2.0e-4
-  steps: 300000
+  steps: 200000            # floating point, then the QAT phase below, as in DRIFT
   workers: 8
   log_every: 100
 loss:
@@ -31,3 +32,7 @@ loss:
   texture: 0.5
   contraction: 1.0
   gamma: 0.9          # target contraction modulus; DRIFT's sweep found 0.9 best at every precision
+qat:
+  bits: 8
+  steps: 100000
+  lr: 2.0e-5
