@@ -16,6 +16,8 @@ import torch.nn.functional as F
 def warp(x: torch.Tensor, flow: torch.Tensor) -> torch.Tensor:
     """Backward-warp ``x`` (N, C, H, W) by ``flow`` (N, 2, H, W) in pixels: out[p] = x[p + flow[p]]."""
     n, _, h, w = x.shape
+    if h < 2 or w < 2:  # the sampling grid divides by h - 1 and w - 1
+        raise ValueError(f"warp needs at least 2 x 2 pixels, got {h} x {w}")
     ys, xs = torch.meshgrid(torch.arange(h, device=x.device, dtype=x.dtype),
                             torch.arange(w, device=x.device, dtype=x.dtype), indexing="ij")
     gx = (xs + flow[:, 0]) / (w - 1) * 2 - 1  # frames are at least 2 pixels on each side
@@ -46,6 +48,10 @@ class FlowHead(nn.Module):
 
     def forward(self, cur: torch.Tensor, prev: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Flow from ``cur`` to ``prev`` and a confidence map, both at full resolution."""
+        side = 2 ** len(self.levels)
+        if min(cur.shape[-2:]) < side:
+            raise ValueError(f"the {len(self.levels)}-level flow pyramid needs frames of at least {side} x {side} "
+                             f"pixels, got {cur.shape[-2]} x {cur.shape[-1]}")
         pyramid = [(cur, prev)]
         for _ in range(len(self.levels) - 1):
             c, p = pyramid[-1]

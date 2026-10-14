@@ -42,6 +42,13 @@ def test_gate_resets_state_at_a_cut():
         assert not torch.allclose(keep(frames[1], s1)[0], keep(frames[1], no_memory)[0])
 
 
+def test_frames_too_small_for_the_flow_pyramid_are_refused():
+    with pytest.raises(ValueError, match="at least 8 x 8"):
+        Student(ch=16, blocks=2)(torch.rand(1, 3, 4, 4))
+    with pytest.raises(ValueError, match="2 x 2"):
+        warp(torch.rand(1, 1, 1, 5), torch.zeros(1, 2, 1, 5))
+
+
 def test_degrade_shapes():
     hr = torch.rand(2, 3, 64, 64)
     assert degrade(hr, 4, blur_sigma=1.0, noise=0.01).shape == (2, 3, 16, 16)
@@ -50,10 +57,10 @@ def test_degrade_shapes():
 def test_a_few_steps_reduce_the_loss():
     torch.manual_seed(0)
     cfg = {"model": {"channels": 16, "blocks": 2, "scale": 4, "reset_threshold": 0.35},
-           "data": {"source": "synthetic", "clips": 8, "frames": 3, "crop": 16},
+           "data": {"source": "synthetic", "clips": 8, "frames": 3, "crop": 32},
            "train": {"batch_size": 4, "lr": 2e-3, "steps": 30, "log_every": 1000},
            "loss": {"teacher": 1.0, "gt": 0.25, "temporal": 0.5}}
-    batch = next(iter(torch.utils.data.DataLoader(SyntheticClips(n=4, frames=3, size=16), batch_size=4)))
+    batch = next(iter(torch.utils.data.DataLoader(SyntheticClips(n=4, frames=3, size=32), batch_size=4)))
     fresh = Student(ch=16, blocks=2)
     before, _ = clip_loss(fresh, batch["lr"], batch["hr"], batch["teacher"])
     trained = train(cfg)
