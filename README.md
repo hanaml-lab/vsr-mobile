@@ -6,10 +6,11 @@ Video super-resolution on the device that plays the video: 270p to 1080p, x4 in 
 network has about 1.9 million parameters and sees only the current and previous frames, so it adds no latency to
 playback. It carries a 16-channel hidden state forward in time, warped by a small optical-flow head; where the flow
 is unreliable (a cut, fast motion, an occlusion) a confidence gate drops that state instead of smearing the old frame
-into the new one. The repository holds distillation from BasicVSR++, quantisation-aware fine-tuning, ONNX, TensorRT
-INT8 and Core ML exports, and a Rust playback pipeline with a frame-time budget. It is the system repo behind the
-[`vsr-lite`](https://hanaml.com/models/vsr-lite) model, and it carries the training terms of the
-[DRIFT](https://hanaml.com/research/papers/ondevice-video-sr) paper into production.
+into the new one. The repository holds distillation from precomputed teacher outputs (the configs read BasicVSR++'s),
+quantisation-aware fine-tuning, ONNX, TensorRT INT8 and Core ML exports, and a Rust playback pipeline with a
+frame-time budget. It is the system repo behind the [`vsr-lite`](https://hanaml.com/models/vsr-lite) model, and it
+carries the training terms of the [DRIFT](https://hanaml.com/research/papers/ondevice-video-sr) paper into
+production. DRIFT's own student, distilled from a one-step video diffusion teacher, stays in the paper repo.
 
 | Component | Language | What it does |
 | --- | --- | --- |
@@ -125,16 +126,21 @@ the codec degradations (more loss at CRF 45 than at CRF 18), the power-iteration
 values, DRIFT's bound against worked values, LSQ rounding and clipping, and that ONNX Runtime reproduces PyTorch to
 1e-4. `cargo test` (8 tests) checks NV12 conversion, the queue's order, scene-cut resets and the frame-time budget.
 
-### Reported for the project
+### Reported in the paper
 
-From the [on-device video super-resolution](https://hanaml.com/research/on-device-video) project:
+The [DRIFT](https://hanaml.com/research/papers/ondevice-video-sr) paper reports these numbers for its own student: a
+1.9M-parameter recurrent network distilled from DOVE, a one-step video diffusion model, and run in W8A8 on a
+Snapdragon 8 Gen 3 NPU. That student, its gated update and its long-rollout state bank are in the paper repo. This
+repo borrows DRIFT's loss terms and LSQ but keeps its own student and teacher, and no paper measures `vsr-lite`.
 
-| Metric | Baseline | Ours | Note |
+| Metric | Baseline | DRIFT | Setting |
 | --- | --- | --- | --- |
-| PSNR, REDS4 (x4) | 28.6 dB | 30.9 dB | Bicubic+sharpen vs. our 1.9M-parameter student |
-| Temporal warping error (lower is better) | 4.1 | 2.3 | Single-frame Real-ESRGAN-small vs. recurrent student |
-| Sustained frame time, 270p to 1080p | 41 ms | 14 ms | Jetson Orin Nano, INT8 TensorRT, after 30 min playback |
-| Flicker preferred-against rate (people) | 38% | 12% | Paired A/B, 24 raters, 40 clips |
+| Latency per frame, 270p to 1080p | 118.0 ms | 21.4 ms | Snapdragon 8 Gen 3 NPU via QNN, median of 1,000 frames; RealBasicVSR, the only other model that runs on the NPU |
+| VideoLQ DOVER (higher is better) | 0.672 | 0.729 | RealBasicVSR vs. DRIFT W8A8; the 5.6B DOVE teacher scores 0.748 |
+| DOVER drop after 1,000 frames (lower is better) | 0.137 | 0.005 | LongLQ; min–max post-training quantisation vs. DRIFT, both W8A8; FP16 reference 0.006 |
+| Warping error, REDS30 (×10⁻³, lower is better) | 5.21 | 2.83 | RealBasicVSR vs. DRIFT W8A8; the teacher scores 2.95 |
+| 2AFC preference for DRIFT over RealBasicVSR | 50% | 74.6% | 24 raters × 40 clips on a phone display; parity as the baseline; 95% CI 69.7–79.1% |
+| PSNR, REDS4 bicubic ×4, trained with ℓ1 alone | 31.42 dB | 30.84 dB | Bidirectional BasicVSR (6.3M parameters) vs. the same student architecture in FP16; 30.71 dB in W8A8 |
 
 ## Papers
 
@@ -144,8 +150,9 @@ From the [on-device video super-resolution](https://hanaml.com/research/on-devic
 
 ## Models
 
-- [`vsr-lite`](https://hanaml.com/models/vsr-lite): the 1.9M-parameter student, distilled from BasicVSR++ with
-  quantisation-aware training; 14 ms per 1080p frame on a Jetson Orin Nano in INT8.
+- [`vsr-lite`](https://hanaml.com/models/vsr-lite): the 1.9M-parameter student this repo trains, distilled from
+  precomputed BasicVSR++ outputs with quantisation-aware training, for INT8 on a Jetson Orin Nano, ONNX Runtime or
+  Core ML. No paper measures it; DRIFT's reported numbers belong to DRIFT's own student.
 
 ## Development
 
