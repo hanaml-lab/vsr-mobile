@@ -22,12 +22,12 @@ keywords:
   - Core ML
 references:
   - type: report
-    title: "DRIFT: Drift-Bounded Distillation of One-Step Video Diffusion into Integer Recurrent Students"
+    title: "DRIFT: Drift-Bounded Distillation of Video Diffusion into Integer Recurrent Students"
     authors:
       - family-names: Agarwal
         given-names: Manav
     institution:
       name: hanaML
-    year: 2025
+    year: 2024
     url: "https://hanaml.com/research/papers/ondevice-video-sr"
     repository-code: "https://github.com/hanaml-lab/ondevice-video-sr"
